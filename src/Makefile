@@ -12,19 +12,23 @@
 # You should have received a copy of the GNU General Public License along
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-# 
-CC = g++
-#CFLAGS = -g -Wall -O3 -I/usr/local/include
-#CFLAGS = -g -Wall -I/usr/local/include
-CFLAGS = -g -Wfatal-errors -Wshadow -Wall -I/usr/local/include 
-#CFLAGS = -pg -Wall -I/usr/local/include
-LD = g++
+#
+
+INCLUDEDIRS = -I../extlibs/include
+
+WARNOPTS = -Wall -Wextra -Wformat=2 -Wstrict-aliasing=2 -Wpointer-arith -Wbad-function-cast -Wcast-qual -Wcast-align -Wconversion -Wfloat-qual -Wredundant-decls -Wshadow -pedantic
+
+CFLAGS = -g -std=c99 $(WARNOPTS) $(INCLUDEDIRS)
+CXXFLAGS = -g -std=c++11 $(WARNOPTS) $(INCLUDEDIRS)
+
+# LD = $(CXX) -v
+LDFLAGS = -L../extlibs/lib
 
 AR = ar
 ARFLAGS=ruv
 
-GMP=-lgmp 
-LDLIBS = -L/usr/local/lib -lntl $(GMP) -lm
+GMP=-lgmp
+LDLIBS = -lntl $(GMP) -lm
 
 HEADER = EncryptedArray.h FHE.h Ctxt.h CModulus.h FHEContext.h PAlgebra.h SingleCRT.h DoubleCRT.h NumbTh.h bluestein.h IndexSet.h timing.h IndexMap.h replicate.h
 
@@ -32,7 +36,7 @@ SRC = KeySwitching.cpp EncryptedArray.cpp FHE.cpp Ctxt.cpp CModulus.cpp FHEConte
 
 #OBJ = EncryptedArray.o FHE.o Ctxt.o CModulus.o FHEContext.o PAlgebra.o SingleCRT.o DoubleCRT.o NumbTh.o bluestein.o IndexSet.o timing.o KeySwitching.o PAlgebraMod.o
 
-OBJ = NumbTh.o timing.o bluestein.o PAlgebra.o  CModulus.o FHEContext.o IndexSet.o DoubleCRT.o SingleCRT.o FHE.o KeySwitching.o Ctxt.o EncryptedArray.o replicate.o 
+OBJ = NumbTh.o timing.o bluestein.o PAlgebra.o  CModulus.o FHEContext.o IndexSet.o DoubleCRT.o SingleCRT.o FHE.o KeySwitching.o Ctxt.o EncryptedArray.o replicate.o
 
 #TESTPROGS = Test_PAlgebra_x Test_DoubleCRT_x Test_CModulus_x Test_FHE_x Test_Arrays_x
 TESTPROGS = Test_General_x Test_Replicate_x Test_LinPoly_x Test_matmul_x
@@ -52,14 +56,11 @@ test: $(TESTPROGS)
 
 obj: $(OBJ)
 
-%.o: %.cpp $(HEADER)
-	$(CC) $(CFLAGS) -c $<
-
 fhe.a: $(OBJ)
 	$(AR) $(ARFLAGS) fhe.a $(OBJ)
 
 ./%_x: %.cpp fhe.a
-	$(CC) $(CFLAGS) -o $@ $< fhe.a $(LDLIBS)
+	$(LINK.cpp) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 clean:
 	rm -f *.o *_x *_x.exe *.a core.*
