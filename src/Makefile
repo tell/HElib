@@ -54,6 +54,9 @@ check: Test_General_x
 
 test: $(TESTPROGS)
 
+%.o: %.cpp
+	$(COMPILE.cc) $(OUTPUT_OPTION) $<
+
 obj: $(OBJ)
 
 fhe.a: $(OBJ)
@@ -65,3 +68,55 @@ fhe.a: $(OBJ)
 clean:
 	rm -f *.o *_x *_x.exe *.a core.*
 	rm -rf *.dSYM
+# DO NOT DELETE
+
+AltCRT.o: AltCRT.h NumbTh.h IndexMap.h IndexSet.h cloned_ptr.h FHEContext.h
+AltCRT.o: PAlgebra.h CModulus.h bluestein.h DoubleCRT.h timing.h
+CModulus.o: NumbTh.h CModulus.h PAlgebra.h cloned_ptr.h bluestein.h timing.h
+Ctxt.o: FHEContext.h PAlgebra.h cloned_ptr.h CModulus.h bluestein.h
+Ctxt.o: IndexSet.h Ctxt.h DoubleCRT.h NumbTh.h IndexMap.h FHE.h timing.h
+DoubleCRT.o: NumbTh.h PAlgebra.h cloned_ptr.h CModulus.h bluestein.h
+DoubleCRT.o: DoubleCRT.h IndexMap.h IndexSet.h FHEContext.h SingleCRT.h
+DoubleCRT.o: timing.h
+EncryptedArray.o: EncryptedArray.h FHE.h DoubleCRT.h NumbTh.h IndexMap.h
+EncryptedArray.o: IndexSet.h cloned_ptr.h FHEContext.h PAlgebra.h CModulus.h
+EncryptedArray.o: bluestein.h Ctxt.h timing.h
+FHE.o: DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h cloned_ptr.h FHEContext.h
+FHE.o: PAlgebra.h CModulus.h bluestein.h FHE.h Ctxt.h timing.h
+FHEContext.o: NumbTh.h FHEContext.h PAlgebra.h cloned_ptr.h CModulus.h
+FHEContext.o: bluestein.h IndexSet.h
+IndexSet.o: IndexSet.h
+KeySwitching.o: FHE.h DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h cloned_ptr.h
+KeySwitching.o: FHEContext.h PAlgebra.h CModulus.h bluestein.h Ctxt.h
+NumbTh.o: NumbTh.h
+PAlgebra.o: NumbTh.h PAlgebra.h cloned_ptr.h
+PAlgebraMod.o: NumbTh.h PAlgebra.h cloned_ptr.h
+SingleCRT.o: NumbTh.h SingleCRT.h FHEContext.h PAlgebra.h cloned_ptr.h
+SingleCRT.o: CModulus.h bluestein.h IndexSet.h IndexMap.h DoubleCRT.h
+Test_General.o: FHE.h DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h cloned_ptr.h
+Test_General.o: FHEContext.h PAlgebra.h CModulus.h bluestein.h Ctxt.h
+Test_General.o: timing.h EncryptedArray.h
+Test_IO.o: FHE.h DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h cloned_ptr.h
+Test_IO.o: FHEContext.h PAlgebra.h CModulus.h bluestein.h Ctxt.h timing.h
+Test_IO.o: EncryptedArray.h
+Test_LinPoly.o: NumbTh.h
+Test_PAlgebra.o: PAlgebra.h cloned_ptr.h NumbTh.h FHEContext.h CModulus.h
+Test_PAlgebra.o: bluestein.h IndexSet.h
+Test_Replicate.o: FHE.h DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h
+Test_Replicate.o: cloned_ptr.h FHEContext.h PAlgebra.h CModulus.h bluestein.h
+Test_Replicate.o: Ctxt.h replicate.h EncryptedArray.h timing.h
+Test_matmul.o: FHE.h DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h cloned_ptr.h
+Test_matmul.o: FHEContext.h PAlgebra.h CModulus.h bluestein.h Ctxt.h timing.h
+Test_matmul.o: EncryptedArray.h
+bluestein.o: bluestein.h timing.h
+old-Test_FHE.o: FHE.h DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h cloned_ptr.h
+old-Test_FHE.o: FHEContext.h PAlgebra.h CModulus.h bluestein.h Ctxt.h
+old-Test_FHE.o: timing.h
+old2-Test_FHE.o: FHE.h DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h
+old2-Test_FHE.o: cloned_ptr.h FHEContext.h PAlgebra.h CModulus.h bluestein.h
+old2-Test_FHE.o: Ctxt.h timing.h
+powerful.o: NumbTh.h
+replicate.o: replicate.h FHE.h DoubleCRT.h NumbTh.h IndexMap.h IndexSet.h
+replicate.o: cloned_ptr.h FHEContext.h PAlgebra.h CModulus.h bluestein.h
+replicate.o: Ctxt.h EncryptedArray.h timing.h
+timing.o: timing.h
