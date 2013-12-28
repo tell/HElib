@@ -1,20 +1,30 @@
 NTLURI = http://www.shoup.net/ntl/ntl-6.0.0.tar.gz
-NTLARCNAME = $(shell basename $(NTLURI))
 ARCEXTNAME = tar.gz
+NTLARCNAME = $(shell basename $(NTLURI))
 NTLDIRNAME = $(NTLARCNAME:%.$(ARCEXTNAME)=%)
+NTLINSTALLDIR = ../../extlibs
 
 RM = rm -rf
 WGET = wget
 TAR = tar
+BUILDSCRIPT=./my-configure.sh
 
-.PHONY: all clean download extract
+.PHONY: all clean download extract build install
 
-all: download extract
+all: build
 
 clean:
-	$(RM) $(NTLARCNAME) $(NTLDIRNAME)
+	$(RM) $(NTLDIRNAME)/src/all
 
-extract: $(NTLDIRNAME)
+install: build
+	$(MAKE) -C $(NTLDIRNAME)/src install
+
+build: extract $(NTLDIRNAME)/src/all
+
+$(NTLDIRNAME)/src/all:
+	$(BUILDSCRIPT) $(NTLDIRNAME) $(NTLINSTALLDIR)
+
+extract: download $(NTLDIRNAME)
 
 $(NTLDIRNAME):
 	$(TAR) xf $(NTLARCNAME)
