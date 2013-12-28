@@ -1,0 +1,5 @@
+*.o
+*.a
+*.dSYM
+
+Test_General_x
