@@ -16,7 +16,8 @@
 
 INCLUDEDIRS = -I../extlibs/include
 
-WARNOPTS = -Wall -Wextra -Wformat=2 -Wstrict-aliasing=2 -Wpointer-arith -Wbad-function-cast -Wcast-qual -Wcast-align -Wconversion -Wfloat-qual -Wredundant-decls -Wshadow -pedantic
+WARNOPTS = -Wall -Wextra -Wformat=2 -Wstrict-aliasing=2 -Wpointer-arith -Wbad-function-cast -Wcast-qual -Wcast-align -Wconversion -Wfloat-equal -Wredundant-decls -Wshadow -pedantic
+
 
 CFLAGS = -g -std=c99 $(WARNOPTS) $(INCLUDEDIRS)
 CXXFLAGS = -g -std=c++11 $(WARNOPTS) $(INCLUDEDIRS)
