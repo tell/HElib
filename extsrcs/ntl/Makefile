@@ -14,7 +14,7 @@ BUILDSCRIPT=./my-configure.sh
 all: build
 
 clean:
-	$(RM) $(NTLDIRNAME)/src/all
+	$(RM) $(NTLDIRNAME)/src/all *~
 
 install: build
 	$(MAKE) -C $(NTLDIRNAME)/src install
