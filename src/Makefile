@@ -17,7 +17,7 @@
 
 INCLUDEDIRS = -I../extlibs/include
 
-WARNOPTS = -Wall -Wextra -Wformat=2 -Wstrict-aliasing=2 -Wpointer-arith -Wbad-function-cast -Wcast-qual -Wcast-align -Wconversion -Wfloat-equal -Wredundant-decls -Wshadow -pedantic
+WARNOPTS = -Wall -Wextra -Wformat=2 -Wstrict-aliasing=2 -Wpointer-arith -Wbad-function-cast -Wcast-qual -Wcast-align -Wconversion -Wfloat-equal -Wredundant-decls -Wshadow -pedantic -fcolor-diagnostics
 
 
 CFLAGS = -g -std=c99 $(WARNOPTS) $(INCLUDEDIRS)
