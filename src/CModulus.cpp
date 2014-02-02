@@ -70,22 +70,36 @@ zz_pContext BuildContext(long p, long maxroot)
 
 
 // Constructor: it is assumed that zms is already set with m>1
+// If q == 0, then the current context is used
 template <class type> Cmod<type>::
 Cmod(const PAlgebra &zms, const zz &qq, const zz &rt)
 {
   assert(zms.getM()>1);
+  bool explicitModulus = true;
+
+  if (qq == 0) {
+    q = zp::modulus();
+    explicitModulus = false;
+  }
+  else
+    q = qq;
 
   zMStar = &zms;
-  q = qq;
   root = rt;
 
   zz mm;
   mm = zms.getM();
   m_inv = InvMod(mm, q);
 
-  zz_pBak bak; bak.save(); // backup the current modulus
-  context = BuildContext(qq, NextPowerOfTwo(zms.getM()) + 1);
-  context.restore();       // set NTL's current modulus to q
+  zz_pBak bak; 
+
+  if (explicitModulus) {
+    bak.save(); // backup the current modulus
+    context = BuildContext(q, NextPowerOfTwo(zms.getM()) + 1);
+    context.restore();       // set NTL's current modulus to q
+  }
+  else
+    context.save();
 
   if (IsZero(root)) { // Find a 2m-th root of unity modulo q, if not given
     zp rtp;
@@ -170,6 +184,7 @@ void Cmod<type>::FFT(zzv &y, const ZZX& x) const
   FHE_TIMER_STOP;
 }
 
+
 template <class type>
 void Cmod<type>::iFFT(zpx &x, const zzv& y)const
 {
@@ -181,10 +196,10 @@ void Cmod<type>::iFFT(zpx &x, const zzv& y)const
   long m = getM();
 
   // convert input to zpx format, initializing only the coeffs i s.t. (i,m)=1
-  x.SetMaxLength(m);
+  x.rep.SetLength(m);
   long i,j;
   for (i=j=0; i<m; i++)
-    if (zMStar->inZmStar(i)) SetCoeff(x, i, y[j++]);
+    if (zMStar->inZmStar(i)) conv(x.rep[i], y[j++]);
   x.normalize();
   conv(rt, rInv);  // convert rInv to zp format
 

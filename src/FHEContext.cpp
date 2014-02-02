@@ -17,8 +17,9 @@
 #include "NumbTh.h"
 #include "FHEContext.h"
 
-#define pSize 16   /* empirical average size of small primes */
-#define p0Size 29  /* size of first 1-2 small primes */
+#include "DoubleCRT.h" // include this to pick up USE_ALT_CRT macro
+
+#define pSize (NTL_SP_NBITS/2) /* The size of levels in the chain */
 
 NTL_CLIENT
 
@@ -28,62 +29,34 @@ NTL_CLIENT
 long FindM(long k, long L, long c, long p, long d, long s, long chosen_m, bool verbose)
 {
   // get a lower-bound on the parameter N=phi(m):
-  // 1. Empirically, we use ~20-bit small primes in the modulus chain (the main
-  //    constraints is that 2m must divide p-1 for every prime p). The first
-  //    prime is larger, a 40-bit prime. (If this is a 32-bit machine then we
-  //    use two 20-bit primes instead.)
+  // 1. Each level in the modulus chain corresponds to pSize=NTL_SP_NBITS/2
+  //    bits (where we have one prime of this size, and all the others are of
+  //    size NTL_SP_NBITS).
+  //    When using DoubleCRT, we need 2m to divide q-1 for every prime q.
   // 2. With L levels, the largest modulus for "fresh ciphertexts" has size
-  //          q0 ~ p0 * p^{L} ~ 2^{40+20L}
+  //          Q0 ~ p^{L+1} ~ 2^{(L+1)*pSize}
   // 3. We break each ciphertext into upto c digits, do each digit is as large
-  //    as    D=2^{(40+20L)/c}
+  //    as    D=2^{(L+1)*pSize/c}
   // 4. The added noise variance term from the key-switching operation is
   //    c*N*sigma^2*D^2, and this must be mod-switched down to w*N (so it is
-  //    on part with the added noise from modulus-switching). Hence the ratio
+  //    on par with the added noise from modulus-switching). Hence the ratio
   //    P that we use for mod-switching must satisfy c*N*sigma^2*D^2/P^2<w*N,
-  //    or    P > sqrt(c/w) * sigma * 2^{(40+20L)/c}
+  //    or    P > sqrt(c/w) * sigma * 2^{(L+1)*pSize/c}
   // 5. With this extra P factor, the key-switching matrices are defined
   //    relative to a modulus of size
-  //          Q0 = q0*P ~ sqrt{c/w} sigma 2^{(40+20L)(1+1/c)}
+  //          Q0 = q0*P ~ sqrt{c/w} sigma 2^{(L+1)*pSize*(1+1/c)}
   // 6. To get k-bit security we need N>log(Q0/sigma)(k+110)/7.2, i.e. roughly
-  //          N > (40+20L)(1+1/c)(k+110) / 7.2
+  //          N > (L+1)*pSize*(1+1/c)(k+110) / 7.2
 
+  // Compute a bound on m, and make sure that it is not too large
   double cc = 1.0+(1.0/(double)c);
-  long N = (long) ceil((pSize*L+p0Size)*cc*(k+110)/7.2);
-
-  // pre-computed values of [phi(m),m,d]
-  long ms[][4] = {
-    //phi(m)  m  ord(2) c_m*1000
-    { 1176,  1247, 28,  3736}, // gens=5(42)
-    { 2880,  3133, 24,  3254}, // gens=6(60), 7(!2)
-    { 4096,  4369, 16,  3422}, // gens=129(16),3(!16)
-    { 5292,  5461, 14,  4160}, // gens=3(126),509(3)
-    { 5760,  8435, 24,  8935}, // gens=58(60),1686(2),11(!2)
-    { 8190,  8191, 13,  1273}, // gens=39(630)
-    {10752, 11441, 48,  3607}, // gens=7(112),5(!2)
-    {12000, 13981, 20,  2467}, // gens=10(30),23(10),3(!2)
-    {11520, 15665, 24, 14916}, // gens=6(60),177(4),7(!2)
-    {15004, 15709, 22,  3867}, // gens=5(682)
-    {18000, 18631, 25,  4208}, // gens=17(120),1177(6)
-    {15360, 20485, 24, 12767}, // gens=6(80),242(4),7(2)
-    {16384, 21845, 16, 12798}, // gens=129(16),273(4),3(!16)
-    {17280 ,21931, 24, 18387}, // gens=6(60),467(6),11(!2)
-    {19200, 21607, 40, 35633}, // gens=13(120),2789(2),3(!2)
-    {21168, 27305, 28, 15407}, // gens=6(126),781(6)
-    {23040, 23377, 48,  5292}, // gens=35(240),5(!2)
-    {24576, 24929, 48,  5612}, // gens=12(256),5(!2)
-    {27000, 32767, 15, 20021}, // gens=3(150),873(6),6945(2)
-    {31104, 31609, 72,  5149}, // gens=11(216),5(!2)
-    {43690, 43691, 34, 0},     // gens=69(1285)
-    {49500, 49981, 30, 0},     // gens=3(1650)
-    {46080, 53261, 24, 33409}, // gens=3(240),242(4),7(!2)
-    {54000, 55831, 25, 0},     // gens=22(360),3529(6)
-    {49140, 57337, 39,  2608}, // gens=39(630),40956(2)
-    {51840, 59527, 72, 21128}, // gens=58(60),1912(6),7(!2)
-    {61680, 61681, 40,  1273}, // gens=33(771),17(!2)
-    {65536, 65537, 32,  1273}, // gens=2(32),3(!2048)
-    {75264, 82603, 56, 36484}, // gens=3(336),24294(2),7(!2)
-    {84672, 92837, 56, 38520}  // gens=18(126),1886(6),3(!2)
-  };
+  double dN = ceil((L+1)*pSize*cc*(k+110)/7.2);
+  long N = NTL_SP_BOUND;
+  if (N > dN) N = dN;
+  else {
+    cerr << "Cannot support a bound of " << dN;
+    Error(", aborting.\n");
+  }
 
   long m = 0;
   size_t i=0;
@@ -99,7 +72,41 @@ long FindM(long k, long L, long c, long p, long d, long s, long chosen_m, bool v
       }
     }
   }
-  else {
+  else if (p==2) { // use pre-computed table, divisors of 2^n-1 for some n's
+
+    static long ms[][4] = {  // pre-computed values of [phi(m),m,d]
+      //phi(m), m, ord(2),c_m*1000 (not used anymore)
+      { 1176,  1247, 28,  3736}, // gens=5(42)
+      { 2880,  3133, 24,  3254}, // gens=6(60), 7(!2)
+      { 4096,  4369, 16,  3422}, // gens=129(16),3(!16)
+      { 5292,  5461, 14,  4160}, // gens=3(126),509(3)
+      { 5760,  8435, 24,  8935}, // gens=58(60),1686(2),11(!2)
+      { 8190,  8191, 13,  1273}, // gens=39(630)
+      {10752, 11441, 48,  3607}, // gens=7(112),5(!2)
+      {12000, 13981, 20,  2467}, // gens=10(30),23(10),3(!2)
+      {11520, 15665, 24, 14916}, // gens=6(60),177(4),7(!2)
+      {15004, 15709, 22,  3867}, // gens=5(682)
+      {18000, 18631, 25,  4208}, // gens=17(120),1177(6)
+      {15360, 20485, 24, 12767}, // gens=6(80),242(4),7(2)
+      {16384, 21845, 16, 12798}, // gens=129(16),273(4),3(!16)
+      {17280 ,21931, 24, 18387}, // gens=6(60),467(6),11(!2)
+      {19200, 21607, 40, 35633}, // gens=13(120),2789(2),3(!2)
+      {21168, 27305, 28, 15407}, // gens=6(126),781(6)
+      {23040, 23377, 48,  5292}, // gens=35(240),5(!2)
+      {24576, 24929, 48,  5612}, // gens=12(256),5(!2)
+      {27000, 32767, 15, 20021}, // gens=3(150),873(6),6945(2)
+      {31104, 31609, 72,  5149}, // gens=11(216),5(!2)
+      {43690, 43691, 34, 0},     // gens=69(1285)
+      {49500, 49981, 30, 0},     // gens=3(1650)
+      {46080, 53261, 24, 33409}, // gens=3(240),242(4),7(!2)
+      {54000, 55831, 25, 0},     // gens=22(360),3529(6)
+      {49140, 57337, 39,  2608}, // gens=39(630),40956(2)
+      {51840, 59527, 72, 21128}, // gens=58(60),1912(6),7(!2)
+      {61680, 61681, 40,  1273}, // gens=33(771),17(!2)
+      {65536, 65537, 32,  1273}, // gens=2(32),3(!2048)
+      {75264, 82603, 56, 36484}, // gens=3(336),24294(2),7(!2)
+      {84672, 92837, 56, 38520}  // gens=18(126),1886(6),3(!2)
+    };
     for (i=0; i<sizeof(ms)/sizeof(long[4]); i++) { 
       if (ms[i][0] < N || GCD(p, ms[i][1]) != 1) continue;
       long ordP = multOrd(p, ms[i][1]);
@@ -112,9 +119,28 @@ long FindM(long k, long L, long c, long p, long d, long s, long chosen_m, bool v
     }
   }
 
-  if (m==0) Error("Cannot support these parameters");
+  // If m is not set yet, just set it close to N. This may be a lousy
+  // choice of m for this p, since you will get a small number of slots.
+
+  if (m==0) {
+    // search only for odd values of m, to make phi(m) a little closer to m
+    for (long candidate=N|1; candidate<10*N; candidate+=2) {
+      if (GCD(p,candidate)!=1) continue;
+
+      long ordP = multOrd(p,candidate); // the multiplicative order of p mod m
+      if (d>1 && ordP%d!=0 ) continue;
+      if (ordP > 100) continue;  // order too big, we will get very few slots
+
+      long n = phi_N(candidate); // compute phi(m)
+      if (n < N) continue;       // phi(m) too small
+
+      m = candidate;  // all tests passed, return this value of m
+      break;
+    }
+  }
+
   if (verbose) {
-    cerr << "*** Bound N="<<N<<", choosing m="<<m <<", phi(m)="<< ms[i][0]
+    cerr << "*** Bound N="<<N<<", choosing m="<<m <<", phi(m)="<< phi_N(m)
          << endl;
   }
 
@@ -131,87 +157,152 @@ void FHEcontext::productOfPrimes(ZZ& p, const IndexSet& s) const
     p *= ithPrime(i);
 }
 
-void FHEcontext::AddPrime(long p, bool special)
+// Find the next prime and add it to the chain
+long FHEcontext::AddPrime(long initialP, long delta, bool special)
 {
-  long twoM = 2 * zMStar.getM();  // ensure p-1 is divisible by 2m
-  assert( ProbPrime(p) && p % twoM == 1 && !inChain(p) );
+  long twoM = 2 * zMStar.getM();
+  assert((initialP % twoM == 1) && (delta % twoM == 0));
 
-  long i = moduli.size();
+  long p = initialP;
+  do { p += delta; } // delta could be positive or negative
+  while (p>initialP/16 && p<NTL_SP_BOUND && !(ProbPrime(p) && !inChain(p)));
+
+  if (p<=initialP/16 || p>=NTL_SP_BOUND) return 0; // no prime found
+
+  long i = moduli.size(); // The index of the new prime in the list
   moduli.push_back( Cmodulus(zMStar, p, 0) );
 
   if (special)
     specialPrimes.insert(i);
   else
     ctxtPrimes.insert(i);
+
+  return p;
 }
 
-// Adds to the chain primes whose product is at least totalSize bits
-double AddPrimesBySize(FHEcontext& context, double totalSize, bool special)
+long FHEcontext::AddFFTPrime(bool special)
 {
-  if (!context.zMStar.getM() || context.zMStar.getM() > (1<<20)) // sanity checks
-    Error("AddModuli1: m undefined or larger than 2^20");
+  zz_pBak bak; bak.save(); // Backup the NTL context
 
-  long p = (1UL << NTL_SP_NBITS)-1;   // Start from as large prime as possible
-  long twoM = 2 * context.zMStar.getM(); // make p-1 divisible by 2m
-  p -= (p%twoM); // 0 mod 2m
-  p += twoM +1;  // 1 mod 2m, a 2m quantity is subtracted below
+  do {
+    zz_p::FFTInit(fftPrimeCount);
+    fftPrimeCount++;
+  } while (inChain(zz_p::modulus()));
 
-  bool lastPrime = false;
-  double sizeLeft = totalSize; // how much is left to do
-  while (sizeLeft > 0.0) {
-    // A bit of convoluted logic attempting not to overshoot totalSize by much
-    if (sizeLeft < log((double)p) && !lastPrime) { // decrease p
-      lastPrime = true;
-      p = ceil(exp(sizeLeft));
-      p -= (p%twoM)-1; // make p-1 divisible by 2m
-      twoM = -twoM;    // increase p below, rather than decreasing it
-    }
-    do { p -= twoM; } while (!ProbPrime(p)); // next prime
-    if (!context.inChain(p)) {
-      context.AddPrime(p, special);
-      sizeLeft -= log((double)p);
-    }
-  }
-  return totalSize-sizeLeft;
+  long i = moduli.size(); // The index of the new prime in the list
+  long p = zz_p::modulus();
+
+  moduli.push_back( Cmodulus(zMStar, 0, 1) ); // a dummy Cmodulus object
+
+  if (special)
+    specialPrimes.insert(i);
+  else
+    ctxtPrimes.insert(i);
+
+  return p;
 }
 
-// Adds nPrimes primes to the chain, returns the bitsize of the product of
-// all primes in the chain.
-double AddPrimesByNumber(FHEcontext& context, long nPrimes, 
-			 long p/*=starting point*/, bool special)
+// Adds several primes to the chain. If byNumber=true then totalSize specifies
+// the number of primes to add. If byNumber=false then totalSize specifies the
+// target total bitsize of all the added primes.
+// The function returns the total bitsize of all the added primes.
+double AddManyPrimes(FHEcontext& context, double totalSize, 
+		     bool byNumber, bool special)
 {
-  if (!context.zMStar.getM() || context.zMStar.getM() > (1<<20))  // sanity checks
-    Error("FHEcontext::AddModuli2: m undefined or larger than 2^20");
-
-  long twoM = 2 * context.zMStar.getM();
-
-  // make sure that p>0 and that p-1 is divisible by m
-  if (p<1) p = 1;
-  p -= (p % twoM) -1;
-
+  double nBits = 0.0;     // How many bits added so far
   double sizeSoFar = 0.0;
-  while (nPrimes>0) {
-    do { p += twoM; } while (!ProbPrime(p)); // next prime
-    if (!context.inChain(p)) {
-      context.AddPrime(p, special);
-      nPrimes -= 1;
-      sizeSoFar += log((double)p);
+  if (!context.zMStar.getM() || context.zMStar.getM()>(1<<20))// sanity checks
+    Error("AddManyPrimes: m undefined or larger than 2^20");
+
+#ifdef USE_ALT_CRT
+  while (sizeSoFar < totalSize) {
+    long p = context.AddFFTPrime(special);
+    nBits += log((double)p);
+    sizeSoFar = byNumber? (sizeSoFar+1.0) : nBits;
+  }
+#else
+  // make p-1 divisible by m*2^k for as large k as possible
+  long twoM = 2 * context.zMStar.getM();
+  while (twoM < NTL_SP_BOUND/(NTL_SP_NBITS*2)) twoM *= 2;
+
+  long bigP = NTL_SP_BOUND - (NTL_SP_BOUND%twoM) +1; // 1 mod 2m
+  long p = bigP+twoM; // The twoM is subtracted in the AddPrime function
+
+  while (sizeSoFar < totalSize) {
+    if ((p = context.AddPrime(p,-twoM,special))) { // found a prime
+      nBits += log((double)p);
+      sizeSoFar = byNumber? (sizeSoFar+1.0) : nBits;
+    }
+    else { // we ran out of primes, try a lower power of two
+      twoM /= 2;
+      assert(twoM > (long)context.zMStar.getM()); // can we go lower?
+      p = bigP;
     }
   }
-  return sizeSoFar;
+#endif
+  return nBits;
 }
 
 void buildModChain(FHEcontext &context, long nLvls, long nDgts)
 {
-  // The first 1-2 primes of total p0size bits
-  #if (NTL_SP_NBITS > p0Size)
-    AddPrimesByNumber(context, 1, 1UL<<p0Size); // add a single prime
-  #else
-    AddPrimesByNumber(context, 2, 1UL<<(p0Size/2)); // add two primes
-  #endif
+  long morePrimes = nLvls/2;    // how many more primes to choose
 
-  // The next nLvls primes, as small as possible
-  AddPrimesByNumber(context, nLvls);
+#ifdef NO_HALF_SIZE_PRIME
+  morePrimes = nLvls+1;
+#else
+  // The first prime should be of half the size. The code below tries to find
+  // a prime q0 of this size where q0-1 is divisible by 2^k * m for some k>1.
+  // Then if the plaintext space is a power of two it tries to choose the
+  // second prime q1 so that q0*q1 = 1 mod ptxtSpace. All the other primes are
+  // chosen so that qi-1 is divisible by 2^k * m for as large k as possible.
+  long twoM = 2 * context.zMStar.getM();
+  long bound = (1 << (pSize-1));
+  while (twoM < bound/(2*pSize))
+    twoM *= 2; // divisible by 2^k * m  for a larger k
+
+  bound = bound - (bound % twoM) +1; // = 1 mod 2m
+  long q0 = context.AddPrime(bound, twoM); // add next prime to chain
+  assert(q0 != 0);
+
+
+#if 0
+  // The choice of the 2nd prime is an optimization for the case of
+  // plaintext space mod 2^r for moderate r's (e.g., 2^32).
+  if (context.zMStar.getP() == 2 && context.alMod.getR()>1) {
+    long qmodp = q0 % context.alMod.getPPowR();
+    long nBits = NTL::NumBits(context.zMStar.getM()) + context.alMod.getR();
+
+    // If q0 != 1 mod p^r, try to choose 2nd prime q1 s.t. q0*q1 = 1 mod p^r.
+    // Since q1 should be 1 mod m and q0^{-1} mod p^r, and it needs to be a
+    // prime smaller than NTL_SP_BOUND, then we only attempt it if p^r*m is no
+    // more than NTL_SP_BOUND/128. (The nubmer 128 is chosen since NTL_SP_BOUND
+    // is either 2^30 or 2^50, for 32- or 64-bit machines, respectively.)
+    if (qmodp != 1 && nBits <= NTL_SP_NBITS-7) {
+      // (p^r){-1} mod m
+      long prInv = InvMod(context.alMod.getPPowR(), context.zMStar.getM());
+
+      // (q0*m)^{-1} mod p^r
+      qmodp *= context.zMStar.getM();
+      qmodp %= context.alMod.getPPowR();
+      long qmInv = InvMod(qmodp, context.alMod.getPPowR());
+      // q1 = m*((q0*m)^{-1} mod p^r) + p^r*((p^r)^{-1} mod m)
+      //    = 1 mod m, and also = q0^{-1} mod p^r
+      long q1 = context.zMStar.getM()*qmInv + context.alMod.getPPowR()*prInv;
+      long delta = context.zMStar.getM() * context.alMod.getPPowR();
+
+      bound = NTL_SP_BOUND -(NTL_SP_BOUND%delta) +q1; // = q1 mod  m * p^r
+      while (bound-delta>=NTL_SP_BOUND) 
+	bound -= delta;// ensure that bound-delta < NTL_SP_BOUND
+
+      q1=context.AddPrime(bound,-delta);// add next prime to the chain
+      if (q1) morePrimes--;             // a prime was found
+    }
+  }
+#endif
+#endif
+
+  // Choose the next primes as large as possible
+  if (morePrimes>0) AddPrimesByNumber(context, morePrimes);
 
   // calculate the size of the digits
 
@@ -239,9 +330,15 @@ void buildModChain(FHEcontext &context, long nLvls, long nDgts)
       target += dsize;
     }
     IndexSet s = context.ctxtPrimes / s1; // all the remaining primes
-    context.digits[nDgts-1] = s;
-    double thisDigitSize = context.logOfProduct(s);
-    if (maxDigitSize < thisDigitSize) maxDigitSize = thisDigitSize;
+    if (!empty(s)) {
+      context.digits[nDgts-1] = s;
+      double thisDigitSize = context.logOfProduct(s);
+      if (maxDigitSize < thisDigitSize) maxDigitSize = thisDigitSize;
+    }
+    else { // If last digit is empty, remove it
+      nDgts--;
+      context.digits.resize(nDgts);
+    }
   }
   else { 
     maxDigitSize = context.logOfProduct(context.ctxtPrimes);
@@ -343,7 +440,15 @@ istream& operator>> (istream &str, FHEcontext& context)
   for (long i=0; i<nPrimes; i++) {
     long p;
     str >> p; 
-    context.AddPrime(p, s.contains(i));
+#ifdef USE_ALT_CRT
+    context.moduli.push_back(Cmodulus(context.zMStar,p,1)); // a dummy object
+#else
+    context.moduli.push_back(Cmodulus(context.zMStar,p,0)); // a real object
+#endif
+    if (s.contains(i))
+      context.specialPrimes.insert(i); // special prime
+    else
+      context.ctxtPrimes.insert(i);    // ciphertext prime
   }
 
   // read in the partition to digits

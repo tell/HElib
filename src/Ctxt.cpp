@@ -23,7 +23,33 @@ NTL_CLIENT
 #include "timing.h"
 
 
+// Sanity-check: Check that prime-set is "valid":
+//  i. The set contains either all the special primes or none of them;
+// ii. The regular primes in this set consists of a contiguous nonempty
+//    interval, starting at either 0 or 1.
+bool Ctxt::verifyPrimeSet() const
+{
+  IndexSet s = primeSet & context.specialPrimes; // special primes in primeSet
+  if (!empty(s) && s!=context.specialPrimes) return false;
 
+  s = primeSet / s;                              // ctxt primes in primeSet
+  return (s.isInterval() && s.first()<=1 && !empty(s));
+}
+
+
+//! @brief How many levels in the "base-set" for that ciphertext
+long Ctxt::findBaseLevel() const 
+{
+  IndexSet s;
+  findBaseSet(s);
+  if (context.containsSmallPrime()) {
+    if (s.contains(context.ctxtPrimes.first()))
+      return 2*card(s) -1; // 1st prime is half size
+    else
+      return 2*card(s);
+  }
+  else return card(s);     // one prime per level
+}
 
 bool CtxtPart::operator==(const CtxtPart& other) const
 {
@@ -32,7 +58,8 @@ bool CtxtPart::operator==(const CtxtPart& other) const
   return (skHandle==other.skHandle);
 }
 
-
+// Checking equality between ciphertexts. This routine performs a
+// "shallow" check, comparing only pointers to ciphertext parts.
 bool Ctxt::equalsTo(const Ctxt& other, bool comparePkeys) const
 {
   if (&context != &other.context) return false;
@@ -55,14 +82,20 @@ bool Ctxt::equalsTo(const Ctxt& other, bool comparePkeys) const
 Ctxt::Ctxt(const FHEPubKey& newPubKey, long newPtxtSpace):
   context(newPubKey.getContext()), pubKey(newPubKey), ptxtSpace(newPtxtSpace),
   noiseVar(to_xdouble(0.0))
-{}
+{
+  if (ptxtSpace != pubKey.getPtxtSpace()) { // plaintext-space mistamtch
+    ptxtSpace = GCD(ptxtSpace, pubKey.getPtxtSpace());
+    if (ptxtSpace <= 1) Error("Plaintext-space mismatch Ctxt constructor");
+  }
 
-// Assignment
-Ctxt& Ctxt::operator=(const Ctxt& other)
+}
+
+// A private assignment method that does not check equality of context or
+// public key, this needed for example when we copy the pubEncrKey member
+// between different public keys.
+Ctxt& Ctxt::privateAssign(const Ctxt& other)
 {
   if (this == &other) return *this; // both point to the same object
-  assert(&context == &other.context);
-  assert (&pubKey == &other.pubKey);
 
   parts = other.parts;
   primeSet = other.primeSet;
@@ -78,9 +111,6 @@ Ctxt& Ctxt::operator=(const Ctxt& other)
 void Ctxt::modUpToSet(const IndexSet &s)
 {
   FHE_TIMER_START;
-  IndexSet intersection = context.specialPrimes & s; // set intersection
-  assert(empty(intersection) || intersection==context.specialPrimes);
-
   IndexSet setDiff = s/primeSet; // set minus (primes in s but not in primeSet)
   if (empty(setDiff)) return;    // nothing to do, no primes are added
 
@@ -96,6 +126,7 @@ void Ctxt::modUpToSet(const IndexSet &s)
   noiseVar *= xexp(2*f);
 
   primeSet.insert(setDiff); // add setDiff to primeSet
+  assert(verifyPrimeSet()); // sanity-check: ensure primeSet is still valid
   FHE_TIMER_STOP;
 }
 
@@ -104,10 +135,8 @@ void Ctxt::modUpToSet(const IndexSet &s)
 void Ctxt::modDownToSet(const IndexSet &s)
 {
   FHE_TIMER_START;
-  IndexSet intersection = context.specialPrimes & s; // set intersection
-  assert(empty(intersection) || intersection==context.specialPrimes);
 
-  intersection = primeSet & s;
+  IndexSet intersection = primeSet & s;
   assert(!empty(intersection));       // some primes must be left
   if (intersection==primeSet) return; // nothing to do, removing no primes
   IndexSet setDiff = primeSet / intersection; // set-minus
@@ -122,8 +151,7 @@ void Ctxt::modDownToSet(const IndexSet &s)
   // Get an estimate for the added noise term for modulus switching
   xdouble addedNoiseVar = modSwitchAddedNoiseVar();
   if (noiseVar*ptxtSpace*ptxtSpace < addedNoiseVar) {     // just "drop down"
-    long prodInv 
-      = InvMod(rem(context.productOfPrimes(setDiff),ptxtSpace), ptxtSpace);
+    long prodInv = InvMod(rem(context.productOfPrimes(setDiff),ptxtSpace), ptxtSpace);
     for (size_t i=0; i<parts.size(); i++) {
       parts[i].removePrimes(setDiff);         // remove the primes not in s
       parts[i] *= prodInv;
@@ -142,8 +170,65 @@ void Ctxt::modDownToSet(const IndexSet &s)
     noiseVar += addedNoiseVar;
   }
   primeSet.remove(setDiff); // remove the primes not in s
+  assert(verifyPrimeSet()); // sanity-check: ensure primeSet is still valid
   FHE_TIMER_STOP;
 }
+
+
+// Modulus-switching down
+void Ctxt::modDownToLevel(long lvl)
+
+{
+  long currentLvl;
+  IndexSet targetSet;
+  IndexSet currentSet = primeSet & context.ctxtPrimes;
+  if (context.containsSmallPrime()) {
+    currentLvl = 2*card(currentSet);
+    if (currentSet.contains(0))
+      currentLvl--;  // first prime is half the size
+
+    if (lvl & 1) {   // odd level, includes the half-size prime
+      targetSet = IndexSet(0,(lvl-1)/2);
+    } else {
+      targetSet = IndexSet(1,lvl/2);
+    }
+  }
+  else {
+    currentLvl = card(currentSet);
+
+    targetSet = IndexSet(0,lvl-1);    // one prime per level
+  }
+
+  // If target is not below the current level, nothing to do
+  if (lvl >= currentLvl) return;
+
+  // sanity-check: interval does not contain special primes
+  assert(targetSet.disjointFrom(context.specialPrimes));
+
+  // may need to mod-UP to include the smallest prime
+  if (targetSet.contains(0) && !currentSet.contains(0))
+    modUpToSet(targetSet); // adds the primes in targetSet / primeSet
+
+  modDownToSet(targetSet); // removes the primes in primeSet / targetSet
+}
+
+void Ctxt::blindCtxt(const ZZX& poly)
+{
+  Ctxt tmp(pubKey);
+  pubKey.Encrypt(tmp,poly,ptxtSpace,/*highNoise=*/true);
+  *this += tmp;
+  // FIXME: This implementation is not optimized, the levels in the
+  //  modulus chain should be handled much better.
+}
+
+// Reduce plaintext space to a divisor of the original plaintext space
+void Ctxt::reducePtxtSpace(long newPtxtSpace)
+{
+  long g = GCD(ptxtSpace, newPtxtSpace);
+  assert (g>1);
+  ptxtSpace = g;
+}
+
 
 // key-switch to (1,s_i), s_i is the base key with index keyID. If
 // keyID<0 then re-linearize to any key for which a switching matrix exists
@@ -251,25 +336,7 @@ void Ctxt::keySwitchPart(const CtxtPart& p, const KeySwitch& W)
   // during homormophic evaluation, so it should be thoroughly optimized.
 
   vector<DoubleCRT> polyDigits;
-#if 1
   p.breakIntoDigits(polyDigits, nDigits);
-#else
-  // Currently we use a very naive implementation, significant optimizations
-  // should be possible here.
-
-  IndexSet s = p.getIndexSet();    // a scrach copy
-  s.insert(context.specialPrimes); // add the special primes
-  ZZX poly, polyMod;
-  p.toPoly(poly);
-  polyDigits.resize(nDigits, DoubleCRT(context,s));
-  for (long i=0; i<nDigits; i++) {
-    ZZ pi = context.productOfPrimes(context.digits[i]);
-    PolyRed(polyMod, poly, pi); // low digit: poly % pi
-    polyDigits[i] = polyMod;    // convert to DoubleCRT representation
-    poly -= polyMod;
-    poly /= pi;      // poly = (poly - (poly % pi))/pi
-  }
-#endif
 
   // Finally we multiply the vector of digits by the key-switching matrix
 
@@ -305,28 +372,51 @@ void Ctxt::keySwitchPart(const CtxtPart& p, const KeySwitch& W)
   FHE_TIMER_STOP;
 } // restore random state upon destruction of the RandomState, see NumbTh.h
 
-
 // Find the IndexSet such that modDown to that set of primes makes the
 // additive term due to rounding into the dominant noise term 
 void Ctxt::findBaseSet(IndexSet& s) const
 {
+  assert(verifyPrimeSet());
+  bool halfSize = context.containsSmallPrime();
   double addedNoise = log(modSwitchAddedNoiseVar())/2;
   double curNoise = log(getNoiseVar())/2;
+  double firstNoise = context.logOfPrime(0);
 
   // remove special primes, if they are included in this->primeSet
-  s = getPrimeSet() & context.specialPrimes; // set intersection
-  if (!empty(s)) { 
-    curNoise -= context.logOfProduct(s); // scaled down noise
-    s = getPrimeSet() / s; // set minus
+  s = getPrimeSet();
+  if (!s.disjointFrom(context.specialPrimes)) { 
+    // scale down noise
+    curNoise -= context.logOfProduct(context.specialPrimes);
+    s.remove(context.specialPrimes);
   }
-  else s = getPrimeSet();
-  assert (!empty(s));
+
+  if (curNoise<=addedNoise) return; // no need to mod down
+
+  // if the first prime in half size, begin by removing it
+  if (halfSize && s.contains(0)) {
+    curNoise -= firstNoise;
+    s.remove(0);
+  }
 
   // while noise is larger than added term, scale down by the next prime
   while (curNoise>addedNoise && card(s)>1) {
     curNoise -= context.logOfPrime(s.last());
     s.remove(s.last());
   }
+
+  if (halfSize) {
+    // If noise is still too big, drop last big prime and insert half-size prime
+    if (curNoise>addedNoise) {
+      curNoise = firstNoise;
+      s = IndexSet(0);
+    } 
+    // Otherwise check if you can add back the half-size prime
+    else if (curNoise+firstNoise <= addedNoise) {
+      curNoise += firstNoise;
+      s.insert(0);
+    }
+  }
+
   if (curNoise>addedNoise)
     cerr << "Ctxt::findBaseSet warning: already at lowest level\n";
 }
@@ -398,7 +488,7 @@ void Ctxt::addConstant(const DoubleCRT& dcrt, double size)
   }
   else addPart(dcrt, SKHandle(0,1,0));
 
-  noiseVar += size*f*f;
+  noiseVar += (size*f)*f;
   FHE_TIMER_STOP;
 }
 
@@ -509,16 +599,22 @@ void Ctxt::tensorProduct(const Ctxt& c1, const Ctxt& c2)
   noiseVar = c1.noiseVar * c2.noiseVar * factor;
   if (f!=1) {
     // WARNING: the following line is written just so to prevent overflow
-    noiseVar = noiseVar*f*f; // because every product was scaled by f
+    noiseVar = (noiseVar*f)*f; // because every product was scaled by f
   }
 }
 
 Ctxt& Ctxt::operator*=(const Ctxt& other)
 {
   FHE_TIMER_START;
+
+  // Sanity check: plaintext spaces are compatible
+  long g = GCD(ptxtSpace, other.ptxtSpace);
+  assert (g>1);
+  this->ptxtSpace = g;
   Ctxt tmpCtxt(this->pubKey, this->ptxtSpace); // a scratch ciphertext
 
   if (this == &other) { // a squaring operation
+    modDownToLevel(findBaseLevel());      // mod-down if needed
     tmpCtxt.tensorProduct(*this, other);  // compute the actual product
     tmpCtxt.noiseVar *= 2;     // a correction factor due to dependency
   }
@@ -526,28 +622,23 @@ Ctxt& Ctxt::operator*=(const Ctxt& other)
     // Sanity check: same context and public key
     assert (&context==&other.context && &pubKey==&other.pubKey);
 
-    // Sanity check: plaintext spaces are compatible
-    long g = GCD(ptxtSpace, other.ptxtSpace);
-    assert (g>1);
-    this->ptxtSpace = g;
+    // Match the levels, mod-DOWN the arguments if needed
+    long lvl = findBaseLevel();
+    long otherLvl = other.findBaseLevel();
+    if (lvl > otherLvl) lvl = otherLvl; // the smallest of the two
 
-    // Match the prime-sets, mod-DOWN the arguments if needed
-    IndexSet intersection = primeSet & other.primeSet; // set-intersection
-    assert(!empty(intersection)); // nowhere to mod-switch to
-
-    // mod-DOWN *this, if needed
-    if (intersection!=this->primeSet) modDownToSet(intersection);
+    // mod-DOWN *this, if needed (also removes special primes, if any)
+    modDownToLevel(lvl);
 
     // mod-DOWN other, if needed
-    if (intersection!=other.primeSet){ // use temporary copy to mod-DOWN other
+    if (primeSet!=other.primeSet){ // use temporary copy to mod-DOWN other
       Ctxt tmpCtxt1 = other;
-      tmpCtxt1.modDownToSet(intersection);
+      tmpCtxt1.modDownToLevel(lvl);
       tmpCtxt.tensorProduct(*this,tmpCtxt1); // compute the actual product
     }
     else 
       tmpCtxt.tensorProduct(*this, other);   // compute the actual product
   }
-
   *this = tmpCtxt; // copy the result into *this
 
   FHE_TIMER_STOP;
@@ -559,71 +650,43 @@ Ctxt& Ctxt::operator*=(const Ctxt& other)
 
 void Ctxt::multiplyBy(const Ctxt& other)
 {
-  FHE_TIMER_START;
-  // The level where we do this multiplication is the lower between
-  // the "base sets" of the two arguments
-
-  IndexSet s, s1;
-  this->findBaseSet(s);
-  other.findBaseSet(s1);
-
-  modDownToSet(s&s1); // mod-down to the intersection
   *this *= other;  // perform the multiplication
   reLinearize();   // re-linearize
-  FHE_TIMER_STOP;
 }
 
 void Ctxt::multiplyBy2(const Ctxt& other1, const Ctxt& other2)
 {
-  FHE_TIMER_START;
-  // The level where we do this multiplication is the lower between
-  // the "base sets" of the three arguments
+  long lvl = findBaseLevel();
+  long lvl1 = other1.findBaseLevel();
+  long lvl2 = other2.findBaseLevel();
 
-  IndexSet s, s1, s2;
-  this->findBaseSet(s);
-  other1.findBaseSet(s1);
-  other2.findBaseSet(s2);
+  if (lvl<lvl1 && lvl<lvl2){ // if both others at higher levels than this,
+    Ctxt tmp = other1;       // multiply others by each other, then by this
+    if (&other1 == &other2) tmp *= tmp; // squaring rather than multiplication
+    else                    tmp *= other2;
 
-  if (s<s1 && s<s2) { // special case: both others at higher levels than this
-    Ctxt tmp = other1;// multiply the two others by each other, then by this
-    s1.retain(s2);        // set intersection
-    tmp.modDownToSet(s1); // mod-Down to the intersection of s1,s2
-    tmp *= other2;
-
-    this->modDownToSet(s); // mod-Down to s (we know that s < s1&s2)
-    tmp.modDownToSet(s);
     *this *= tmp;
   }
-  else if (s<s2) { // s1<=s<s2, multiply first by other2, then by other1
-    this->modDownToSet(s); // mod-Down to s < s2
+  else if (lvl<lvl2) { // lvl1<=lvl<lvl2, multiply by other2, then by other1
     *this *= other2;
-
-    s.retain(s1);  // set intersection
-    this->modDownToSet(s); // mod-Down to the intersection of s,s1
     *this *= other1;    
   }
   else { // multiply first by other1, then by other2
-    s.retain(s1);  // set intersection
-    this->modDownToSet(s); // mod-Down to the intersection of s,s1
     *this *= other1;
-
-    s.retain(s2);  // set intersection
-    this->modDownToSet(s); // mod-Down to the intersection of s,s1,s2
     *this *= other2;
   }
-
   reLinearize(); // re-linearize after all the multiplications
-  FHE_TIMER_STOP;
 }
 
 // Multiply-by-constant
 void Ctxt::multByConstant(const DoubleCRT& dcrt, double size)
 {
   FHE_TIMER_START;
-  // If the size is not given, we use the default value phi(m)*ptxtSpace^2/2
+
+   // If the size is not given, we use the default value phi(m)*ptxtSpace^2/2
   if (size <= 0.0) {
     // WARNING: the following line is written just so to prevent overflow
-    size = ((double) context.zMStar.getPhiM()) * ptxtSpace * ptxtSpace /4.0;
+    size = ((double) context.zMStar.getPhiM()) * ptxtSpace * (ptxtSpace /4.0);
   }
 
   // multiply all the parts by this constant
@@ -631,7 +694,55 @@ void Ctxt::multByConstant(const DoubleCRT& dcrt, double size)
     parts[i].Mul(dcrt,/*matchIndexSets=*/false);
 
   noiseVar *= size;
+
   FHE_TIMER_STOP;
+}
+
+// Divide a cipehrtext by 2. It is assumed that the ciphertext
+// encrypts an even polynomial and has plaintext space 2^r for r>1.
+// As a side-effect, the plaintext space is halved from 2^r to 2^{r-1}
+// If these assumptions are not met then the result will not be a
+// valid ciphertext anymore.
+void Ctxt::divideBy2()
+{
+  assert (ptxtSpace % 2 == 0 && ptxtSpace>2);
+
+  // multiply all the parts by (productOfPrimes+1)/2
+  ZZ twoInverse; // set to (Q+1)/2
+  getContext().productOfPrimes(twoInverse, getPrimeSet());
+  twoInverse += 1;
+  twoInverse /= 2;
+  for (size_t i=0; i<parts.size(); i++)
+    parts[i] *= twoInverse;
+
+  noiseVar /= 4;  // noise is halved by this operation
+  ptxtSpace /= 2; // and so is the plaintext space
+}
+
+// This function assumes that the slots of c contains integers mod 2^r
+// (i.e., that only the free terms are nonzero). It computes for each slot
+// the AND (product) of all the bits in the inetegr in that slot. That is,
+// the end result has 1 in some slot iff the content of that slot was 2^r-1.
+void Ctxt::extractBits(vector<Ctxt>& bits, long r)
+{
+  assert (getContext().zMStar.getP()==2);
+  if (r<=0 || r>getContext().alMod.getR()) // how many bits to extract
+    r = getContext().alMod.getR();
+
+  Ctxt tmp(getPubKey(), getPtxtSpace());
+  bits.resize(r, tmp);      // allocate space
+  vector<Ctxt> w(r-1, tmp);
+  w[0] = *this;
+  for (long i=1; i<r; i++) {
+    tmp = *this;
+    for (long j=0; j<i; j++) {
+      w[j].square();
+      tmp -= w[j];
+      tmp.divideBy2();
+    }
+    bits[i] = tmp; // bits[i]=i'th lowest bit in the slots of c mod 2^{r-i}
+    if (i<r-1) w[i] = tmp; // needed in the next round
+  }
 }
 
 void Ctxt::automorph(long k) // Apply automorphism F(X)->F(X^k) (gcd(k,m)=1)
@@ -659,6 +770,10 @@ void Ctxt::automorph(long k) // Apply automorphism F(X)->F(X^k) (gcd(k,m)=1)
 void Ctxt::smartAutomorph(long k) 
 {
   FHE_TIMER_START;
+  long m = context.zMStar.getM();
+
+  k = mcMod(k, m);
+
   // Sanity check: verify that k \in Zm*
   assert (context.zMStar.inZmStar(k));
 
@@ -669,7 +784,6 @@ void Ctxt::smartAutomorph(long k)
   }
   assert (pubKey.isReachable(k,keyID)); // reachable from 1
 
-  long m = context.zMStar.getM();
   while (k != 1) {
     const KeySwitch& matrix = pubKey.getNextKSWmatrix(k,keyID);
     long amt = matrix.fromKey.getPowerOfX();
@@ -719,8 +833,8 @@ xdouble Ctxt::modSwitchAddedNoiseVar() const
     }
   }
   // WARNING: the following line is written just so to prevent overflow
-  addedNoise = addedNoise * context.zMStar.getPhiM() 
-                          * ptxtSpace * ptxtSpace/ 12.0;
+  addedNoise = (addedNoise * context.zMStar.getPhiM()) 
+               * ptxtSpace * (ptxtSpace/ 12.0);
 
   return addedNoise;
 }
@@ -783,6 +897,33 @@ istream& operator>>(istream& str, Ctxt& ctxt)
 
 void CheckCtxt(const Ctxt& c, const char* label)
 {
-  cerr << "  "<<label << ", level=" << c.getLevel() << ", log(noise/modulus)~" << c.log_of_ratio() << endl;
+  cerr << "  "<<label << ", level=" << c.findBaseLevel() << ", log(noise/modulus)~" << c.log_of_ratio() << endl;
 }
 
+// The recursive incremental-product function that does the actual work,
+// see 
+static void recursiveIncrementalProduct(Ctxt array[], long n)
+{
+  if (n <= 1) return; // nothing to do
+
+  // split the array in two, first part is the highest power of two smaller
+  // than n and second part is the rest
+
+  long ell = NTL::NumBits(n-1); // 2^{l-1} <= n-1
+  long n1 = 1UL << (ell-1);     // n/2 <= n1 = 2^l < n
+
+  // Call the recursive procedure separately on the first and second parts
+  recursiveIncrementalProduct(array, n1);
+  recursiveIncrementalProduct(&array[n1], n-n1);
+
+  // Multiply the last product in the 1st part into every product in the 2nd
+  for (long i=n1; i<n; i++) array[i].multiplyBy(array[n1-1]);
+}
+
+// For i=n-1...0, set v[i]=prod_{j<=i} v[j]
+// This implementation uses depth log n and (nlog n)/2 products
+void incrementalProduct(vector<Ctxt>& v)
+{
+  long n = v.size();  // how many ciphertexts do we have
+  if (n > 0) recursiveIncrementalProduct(&v[0], n); // do the actual work
+}

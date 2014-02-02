@@ -259,6 +259,7 @@ void EncryptedArrayDerived<type>::shift(Ctxt& ctxt, long k) const
 
   long nSlots = al.getNSlots();
 
+  // Shifting by more than the number of slots gives an all-zero cipehrtext
   if (k <= -nSlots || k >= nSlots) {
     ctxt.multByConstant(to_ZZX(0));
     return;
@@ -441,7 +442,7 @@ buildLinPolyCoeffs(vector<ZZX>& C, const vector<ZZX>& L) const
   vector<RX> CC, LL;
   convert(LL, L);
   tab.buildLinPolyCoeffs(CC, LL, mappingData);
-  convert(C, LL);
+  convert(C, CC);
 }
 
 PlaintextArrayBase* buildPlaintextArray(const EncryptedArray& ea)
@@ -464,4 +465,55 @@ template class EncryptedArrayDerived<PA_zz_p>;
 
 template class PlaintextArrayDerived<PA_GF2>;
 template class PlaintextArrayDerived<PA_zz_p>;
+
+
+
+
+// Other functions...
+
+
+
+void runningSums(const EncryptedArray& ea, Ctxt& ctxt)
+{
+  long n = ea.size();
+
+  long shamt = 1;
+  while (shamt < n) {
+    Ctxt tmp = ctxt;
+    ea.shift(tmp, shamt);
+    ctxt += tmp; // ctxt = ctxt + (ctxt >> shamt)
+    shamt = 2*shamt;
+  }
+}
+
+void totalSums(const EncryptedArray& ea, Ctxt& ctxt)
+{
+  long n = ea.size();
+
+  if (n == 1) return;
+
+  Ctxt orig = ctxt;
+
+  long k = NumBits(n);
+  long e = 1;
+
+  for (long i = k-2; i >= 0; i--) {
+    Ctxt tmp1 = ctxt;
+    ea.rotate(tmp1, e);
+    ctxt += tmp1; // ctxt = ctxt + (ctxt >>> e)
+    e = 2*e;
+
+    if (bit(n, i)) {
+      Ctxt tmp2 = orig;
+      ea.rotate(tmp2, e);
+      ctxt += tmp2; // ctxt = ctxt + (orig >>> e)
+                    // NOTE: we could have also computed
+                    // ctxt =  (ctxt >>> e) + orig, however,
+                    // this would give us greater depth/noise
+      e += 1;
+    }
+  }
+}
+
+
 

@@ -39,6 +39,30 @@ bool parseArgs(int argc,  char *argv[], argmap_t& argmap)
   return true;
 }
 
+// Mathematically correct mod and div, avoids overflow
+long mcMod(long a, long b) 
+{
+   long r = a % b;
+
+   if (r != 0 && (b < 0) != (r < 0))
+      return r + b;
+   else
+      return r;
+
+}
+
+long mcDiv(long a, long b) {
+
+   long r = a % b;
+   long q = a / b;
+
+   if (r != 0 && (b < 0) != (r < 0))
+      return q + 1;
+   else
+      return q;
+}
+
+
 // return multiplicative order of p modulo m, or 0 if GCD(p, m) != 1
 long multOrd(long p, long m)
 {
@@ -55,6 +79,18 @@ long multOrd(long p, long m)
 }
 
 
+// return a degree-d irreducible polynomial mod p
+ZZX makeIrredPoly(long p, long d)
+{
+	assert(d >= 1);
+  assert(ProbPrime(p));
+
+  if (d == 1) return ZZX(1, 1); // the monomial X
+
+  zz_pBak bak; bak.save();
+  zz_p::init(p);
+  return to_ZZX(BuildIrred_zz_pX(d));
+}
 
 
 // Factoring by trial division, only works for N<2^{60}.
@@ -477,6 +513,30 @@ void sampleGaussian(ZZX &poly, long n, double stdev)
   poly.normalize(); // need to call this after we work on the coeffs
 }
 
+void sampleUniform(ZZX& poly, const ZZ& B, long n)
+{
+  if (n<=0) n=deg(poly)+1; if (n<=0) return;
+  if (B <= 0) {
+    clear(poly);
+    return;
+  }
+
+  poly.SetMaxLength(n); // allocate space for degree-(n-1) polynomial
+
+  ZZ UB, tmp;
+
+  UB =  2*B + 1;
+  for (long i = 0; i < n; i++) {
+    RandomBnd(tmp, UB);
+    tmp -= B; 
+    poly.rep[i] = tmp;
+  }
+
+  poly.normalize();
+}
+
+
+
 // ModComp: a pretty lame implementation
 
 void ModComp(ZZX& res, const ZZX& g, const ZZX& h, const ZZX& f)
@@ -561,7 +621,7 @@ void buildLinPolyMatrix(mat_GF2E& M, long p)
 {
    assert(p == 2);
 
-   long d = zz_pE::degree();
+   long d = GF2E::degree();
 
    M.SetDims(d, d);
 

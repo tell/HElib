@@ -22,19 +22,6 @@
 #include <cassert>
 
 
-ZZX makeIrredPoly(long p, long d)
-{
-  assert(d >= 1);
-  assert(ProbPrime(p));
-
-  if (d == 1) return ZZX(1, 1); // the monomial X
-
-  zz_pBak bak; bak.save();
-  zz_p::init(p);
-  return to_ZZX(BuildIrred_zz_pX(d));
-}
-
-
 template<class type> 
 class RunningSumMatrix : public  PlaintextMatrixInterface<type> {
 public:
@@ -73,6 +60,48 @@ buildRunningSumMatrix(const EncryptedArray& ea)
 
     case PA_zz_p_tag: {
       return new RunningSumMatrix<PA_zz_p>(ea);
+    }
+
+    default: return 0;
+  }
+}
+
+
+template<class type> 
+class TotalSumMatrix : public  PlaintextMatrixInterface<type> {
+public:
+  PA_INJECT(type) 
+
+private:
+  const EncryptedArray& ea;
+
+public:
+  ~TotalSumMatrix() { cerr << "destructor: total sum matrix\n"; }
+
+  TotalSumMatrix(const EncryptedArray& _ea) : ea(_ea) { }
+
+  virtual const EncryptedArray& getEA() const {
+    return ea;
+  }
+
+  virtual void get(RX& out, long i, long j) const {
+    assert(i >= 0 && i < ea.size());
+    assert(j >= 0 && j < ea.size());
+    out = 1;
+  }
+};
+
+
+PlaintextMatrixBaseInterface *
+buildTotalSumMatrix(const EncryptedArray& ea)
+{
+  switch (ea.getContext().alMod.getTag()) {
+    case PA_GF2_tag: {
+      return new TotalSumMatrix<PA_GF2>(ea);
+    }
+
+    case PA_zz_p_tag: {
+      return new TotalSumMatrix<PA_zz_p>(ea);
     }
 
     default: return 0;
@@ -137,8 +166,6 @@ buildRandomMatrix(const EncryptedArray& ea)
 
 
 
-
-
 void  TestIt(long R, long p, long r, long d, long c, long k, long w, 
                long L, long m)
 {
@@ -184,7 +211,7 @@ void  TestIt(long R, long p, long r, long d, long c, long k, long w,
   cerr << "done\n";
 
   // choose a random plaintext square matrix
-  PlaintextMatrixBaseInterface *ptr = buildRandomMatrix(ea);
+  PlaintextMatrixBaseInterface *ptr = buildTotalSumMatrix(ea);
 
   // choose a random plaintext vector
   PlaintextArray v(ea);
@@ -201,7 +228,8 @@ void  TestIt(long R, long p, long r, long d, long c, long k, long w,
   ea.encrypt(ctxt, publicKey, v);
 
   v.mat_mul(*ptr);         // multiply the plaintext vector
-  ea.mat_mul(ctxt, *ptr);  // multiply the ciphertext vector
+  // ea.mat_mul(ctxt, *ptr);  // multiply the ciphertext vector
+  totalSums(ea, ctxt);  // multiply the ciphertext vector
 
   PlaintextArray v1(ea);
   //  v1 = v;
@@ -215,6 +243,9 @@ void  TestIt(long R, long p, long r, long d, long c, long k, long w,
   // v.print(cout); cout << "\n";
   // v1.print(cout); cout << "\n";
 }
+
+
+
 
 void usage(char *prog) 
 {

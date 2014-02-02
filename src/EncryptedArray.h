@@ -30,11 +30,11 @@ class EncryptedArray; // forward reference
 
 //! @class PlaintextMatrixBaseInterface
 //! @brief An abstract interface for plaintext arrays.
-//! Any class implementing this interface should
-//! be linked to a specific EncryptedArray object,
-//! a reference to which is returned by the getEA()
-//! method -- this method will generally be invoked
-//! by an EncryptedArray object to verify consistent use.
+//!
+//! Any class implementing this interface should be linked to a specific
+//! EncryptedArray object, a reference to which is returned by the getEA()
+//! method -- this method will generally be invoked by an EncryptedArray
+//! object to verify consistent use.
 
 class PlaintextMatrixBaseInterface {
 public:
@@ -45,13 +45,12 @@ public:
 };
 
 
-//! @class PlaintextMatrixInterface<type>
-//! @brief A somewhat less abstract interface for plaintext
-//! arrays. The method get(out, i, j) copies the element
-//! at row i column j of a matrix into the variable out.
-//! The type of out is RX, which is GF2X if type is PA_GF2,
-//! and zz_pX if type is PA_zz_p.
-
+//! @class PlaintextMatrixInterface
+//! @brief A somewhat less abstract interface for plaintext arrays.
+//! 
+//! The method get(out, i, j) copies the element at row i column j of a
+//! matrix into the variable out. The type of out is RX, which is GF2X
+//! if type is PA_GF2, and zz_pX if type is PA_zz_p.
 template<class type> 
 class  PlaintextMatrixInterface : public PlaintextMatrixBaseInterface {
 public:
@@ -59,15 +58,6 @@ public:
 
   virtual void get(RX& out, long i, long j) const = 0;
 };
-
-  
-
-  
-
-  
-
-
-
 
 
 /**
@@ -86,7 +76,7 @@ public:
  *
  * either r == 1 or deg(G) == 1 or G == factors[0].
  * 
- * ea stores objects in the polynomial the polynomial ring Z/(p^r)[X].
+ * ea stores objects in the polynomial ring Z/(p^r)[X].
  * 
  * Just as for the class PAlegebraMod, if p == 2 and r == 1, then these
  * polynomials are represented as GF2X's, and otherwise as zz_pX's.
@@ -113,19 +103,21 @@ public:
   virtual const FHEcontext& getContext() const = 0;
   virtual const long getDegree() const = 0;
 
-  //! @brief Rotation/shift as a linear array
+  //! @brief Left rotation as a linear array.
+  //! E.g., rotating ctxt=Enc(1 2 3 ... n) by k=1 gives Enc(2 3 ... n 1)
   virtual void rotate(Ctxt& ctxt, long k) const = 0; 
 
-  //! @brief Non-cyclic shift with zero fill
+  //! @brief Non-cyclic left shift with zero fill
+  //! E.g., shifting ctxt=Enc(1 2 3 ... n) by k=1 gives Enc(2 3 ... n 0)
   virtual void shift(Ctxt& ctxt, long k) const = 0;
 
-  //! @brief rotate k positions along the i'th dimension
+  //! @brief left-rotate k positions along the i'th dimension
   //! @param dc means "don't care", which means that the caller guarantees
   //! that only zero elements rotate off the end -- this allows for some
   //! optimizations that would not otherwise be possible
   virtual void rotate1D(Ctxt& ctxt, long i, long k, bool dc=false) const = 0; 
 
-  //! @brief Shift k positions along the i'th dimension with zero fill
+  //! @brief Left shift k positions along the i'th dimension with zero fill
   virtual void shift1D(Ctxt& ctxt, long i, long k) const = 0; 
 
 
@@ -143,6 +135,15 @@ public:
   virtual void decode(vector< ZZX  >& array, const ZZX& ptxt) const = 0;
   virtual void decode(PlaintextArray& array, const ZZX& ptxt) const = 0;
 
+  virtual void random(vector< long >& array) const = 0;
+  virtual void random(vector< ZZX >& array) const = 0;
+
+  // FIXME: Inefficient implementation, calls usual decode and returns one slot
+  long decode1Slot(const ZZX& ptxt, long i) const
+  { vector< long > v; decode(v, ptxt); return v.at(i); }
+  void decode1Slot(ZZX& slot, const ZZX& ptxt, long i) const
+  { vector< ZZX > v; decode(v, ptxt); slot=v.at(i); }
+
   //! @brief Encodes a vector with 1 at position i and 0 everywhere else
   virtual void encodeUnitSelector(ZZX& ptxt, long i) const = 0;
   ///@}
@@ -155,6 +156,12 @@ public:
   virtual void decrypt(const Ctxt& ctxt, const FHESecKey& sKey, vector< long >& ptxt) const = 0;
   virtual void decrypt(const Ctxt& ctxt, const FHESecKey& sKey, vector< ZZX >& ptxt) const = 0;
   virtual void decrypt(const Ctxt& ctxt, const FHESecKey& sKey, PlaintextArray& ptxt) const = 0;
+
+  // FIXME: Inefficient implementation, calls usual decrypt and returns one slot
+  long decrypt1Slot(const Ctxt& ctxt, const FHESecKey& sKey, long i) const
+  { vector< long > v; decrypt(ctxt, sKey, v); return v.at(i); }
+  void decrypt1Slot(ZZX& slot, const Ctxt& ctxt, const FHESecKey& sKey, long i) const
+  { vector< ZZX > v; decrypt(ctxt, sKey, v); slot = v.at(i); }
   ///@}
 
   //@{
@@ -290,6 +297,12 @@ public:
 
   virtual void decode(PlaintextArray& array, const ZZX& ptxt) const;
 
+  virtual void random(vector< long  >& array) const
+    { genericRandom(array); } // choose at random and convert to vector<long>
+
+  virtual void random(vector< ZZX  >& array) const
+    { genericRandom(array); } // choose at random and convert to vector<ZZX>
+
   virtual void encrypt(Ctxt& ctxt, const FHEPubKey& pKey, const vector< long >& ptxt) const
     { genericEncrypt(ctxt, pKey, ptxt); }
 
@@ -324,6 +337,13 @@ public:
   void encode(ZZX& ptxt, const vector< RX >& array) const;
   void decode(vector< RX  >& array, const ZZX& ptxt) const;
 
+  // Choose random polynomial of the right degree, coeffs in GF2 or zz_p
+  void random(vector< RX  >& array) const
+  { 
+    array.resize(size()); 
+    for (long i=0; i<size(); i++) NTL::random(array[i], getDegree());
+  }
+
   void encrypt(Ctxt& ctxt, const FHEPubKey& pKey, const vector< RX >& ptxt) const
     { genericEncrypt(ctxt, pKey, ptxt); }
 
@@ -355,6 +375,16 @@ private:
     vector< RX > array1;
     decode(array1, ptxt);
     convert(array, array1);
+  }
+
+  template<class T>
+  void genericRandom(T& array) const // T is vector<long> or vector<ZZX>
+  {
+    RBak bak; bak.save(); context.alMod.restoreContext(); // backup NTL modulus
+
+    vector< RX > array1;    // RX is GF2X or zz_pX
+    random(array1);         // choose random coefficients from GF2/zz_p
+    convert(array, array1); // convert to type T (see NumbTh.h)
   }
 
   template<class T>
@@ -455,6 +485,11 @@ public:
     { rep->decode(array, ptxt); }
   void decode(PlaintextArray& array, const ZZX& ptxt) const 
     { rep->decode(array, ptxt); }
+
+  void random(vector< long  >& array) const
+    { rep->random(array); }
+  void random(vector< ZZX  >& array) const
+    { rep->random(array); }
 
   void encrypt(Ctxt& ctxt, const FHEPubKey& pKey, const vector< long >& ptxt) const 
     { rep->encrypt(ctxt, pKey, ptxt); }
@@ -863,9 +898,11 @@ public:
     if (n == 0) 
       s << "[]";
     else {
-      s << "[" << data[0];
+      if (IsZero(data[0])) s << "[[0]";
+      else                 s << "[" << data[0];
       for (long i = 1; i < lsize(data); i++)
-        s << " " << data[i];
+        if (IsZero(data[i])) s << " [0]";
+	else                 s << " " << data[i];
       s << "]";
     }
   }
@@ -962,5 +999,34 @@ public:
 
   void print(ostream& s) const { rep->print(s); }
 };
+
+
+// Following are functions for performing "higher level"
+// operations on "encrypted arrays".  There is really no
+// reason for these to be members of the EncryptedArray class,
+// so they are just declared as separate functions.
+
+//! @brief if ctxt encrypts (x_1, ..., x_n), then it is
+//! replaced by an encryption of (y_1, ..., y_n), where
+//! y_i = sum_{j=1}^i x_j.  The implementation uses 
+//! O(log n) shift operations.
+void runningSums(const EncryptedArray& ea, Ctxt& ctxt);
+
+//! @brief if ctxt encrypts (x_1, ..., x_n), then it is
+//! replaced by an encryption of (y_n, ..., y_n), where
+//! y_n = sum_{j=1}^n x_j
+void totalSums(const EncryptedArray& ea, Ctxt& ctxt);
+
+
+
+//! @brief incrementalZeroTest sets each res[i], for i=0..n-1, to a ciphertext
+//! in which each slot is 0 or 1 according to whether or not bits 0..i of
+//! corresponding slot in ctxt is zero (1 if not zero, 0 if zero). It is
+//! assumed that res and each res[i] is already initialized by the caller.
+void incrementalZeroTest(Ctxt* res[], const EncryptedArray& ea,
+			 const Ctxt& ctxt, long n);
+// Complexity: O(d + n log d) smart automorphisms
+//             O(n d) 
+
 
 #endif /* ifdef _EncryptedArray_H_ */

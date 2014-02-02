@@ -291,9 +291,25 @@ class Ctxt {
     return -1;
   }
 
+  // Sanity-check: Check that prime-set is "valid":
+  //  i. The set contains either all the special primes or none of them;
+  // ii. The regular primes in this set consists of a contiguous nonempty
+  //    interval, starting at 0.
+  bool verifyPrimeSet() const;
+
+  // A private assignment method that does not check equality of context or
+  // public key, this is needed when we copy the pubEncrKey member between
+  // different public keys.
+  Ctxt& privateAssign(const Ctxt& other);
+ 
 public:
-  Ctxt(const FHEPubKey& newPubKey, long newPtxtSpace=2); // constructor
-  Ctxt& operator=(const Ctxt& other);  // assignment
+  Ctxt(const FHEPubKey& newPubKey, long newPtxtSpace=0); // constructor
+
+  Ctxt& operator=(const Ctxt& other) {  // public assignment operator
+    assert(&context == &other.context);
+    assert (&pubKey == &other.pubKey);
+    return privateAssign(other);
+  }
 
   bool operator==(const Ctxt& other) const { return equalsTo(other); }
   bool operator!=(const Ctxt& other) const { return !equalsTo(other); }
@@ -338,7 +354,23 @@ public:
   // phi(m)*ptxtSpace^2 as the default value.
   void multByConstant(const DoubleCRT& dcrt, double size=0.0);
   void multByConstant(const ZZX& poly, double size=0.0)
-  { multByConstant(DoubleCRT(poly,context,primeSet),size); }
+  { 
+    multByConstant(DoubleCRT(poly,context,primeSet),size); 
+  }
+
+  //! Divide a cipehrtext by 2. It is assumed that the ciphertext
+  //! encrypts an even polynomial and has plaintext space 2^r for r>1.
+  //! As a side-effect, the plaintext space is halved from 2^r to 2^{r-1}
+  //! If these assumptions are not met then the result will not be a
+  //! valid ciphertext anymore.
+  void divideBy2();
+
+  //! This function assumes that the slots of c contains integers mod 2^r
+  //! (i.e., that only the free terms are nonzero). It returns in the slots of
+  //! bits[i] the i'th-lowest bits from the integers in the slots of the input
+  //! If these assumptions are not met then the result will not be a
+  //! valid ciphertext anymore.
+  void extractBits(vector<Ctxt>& bits, long nBits2extract=0);
 
   // Higher-level multiply routines
   void multiplyBy(const Ctxt& other);
@@ -349,11 +381,22 @@ public:
 
   //! @name Ciphertext maintenance
   ///@{
+  //! Reduce plaintext space to a divisor of the original plaintext space
+  void reducePtxtSpace(long newPtxtSpace);
+
   void reLinearize(long keyIdx=0);
           // key-switch to (1,s_i), s_i is the base key with index keyIdx
 
+  //! @brief Add a high-noise encryption of the given constant
+  void blindCtxt(const ZZX& poly);
+
   //! @brief Estimate the added noise variance
   xdouble modSwitchAddedNoiseVar() const;
+
+  //! @brief Find the "natural level" of a cipehrtext.
+  // Find the level such that modDown to that level makes the
+  // additive term due to rounding into the dominant noise term 
+  long findBaseLevel() const;
 
   //! @brief Modulus-switching up (to a larger modulus).
   //! Must have primeSet <= s, and s must contain
@@ -365,7 +408,10 @@ public:
   //! primeSet<=s. s must contain either all special primes or none of them
   void modDownToSet(const IndexSet &s);
 
-  //! @brief Fidn the "natural level" of a cipehrtext.
+  //! @brief Modulus-switching down.
+  void modDownToLevel(long lvl);
+
+  //! @brief Find the "natural prime-set" of a cipehrtext.
   //! Find the highest IndexSet so that mod-switching down to that set results
   //! in the dominant noise term being the additive term due to rounding
   void findBaseSet(IndexSet& s) const;
@@ -392,13 +438,6 @@ public:
   const long getPtxtSpace() const      { return ptxtSpace;}
   const long getKeyID() const;
 
-  //! @brief How many primes in the "base-set" for that ciphertext
-  const long getLevel() const { 
-    IndexSet s;
-    findBaseSet(s);
-    return card(s);
-  }
-
   //! @brief Returns log(noise-variance)/2 - log(q)
   double log_of_ratio() const
   {return (log(getNoiseVar())/2 - context.logOfProduct(getPrimeSet()));}
@@ -411,8 +450,11 @@ inline IndexSet baseSetOf(const Ctxt& c) {
   IndexSet s; c.findBaseSet(s); return s; 
 }
 
+//! For i=n-1...0, set v[i]=prod_{j<=i} v[j]
+//! This implementation uses depth log n and (nlog n)/2 products
+void incrementalProduct(vector<Ctxt>& v);
 
-// print to cerr some info about ciphertext
+//! print to cerr some info about ciphertext
 void CheckCtxt(const Ctxt& c, const char* label);
 
 #endif // ifndef _Ctxt_H_

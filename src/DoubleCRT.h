@@ -15,13 +15,18 @@
  */
 /**
  * @file DoubleCRT.h
- * @brief Implementatigs polynomials (elements in the ring R_Q) in double-CRT form
+ * @brief Integer polynomials (elements in the ring R_Q) in double-CRT form
  **/
 
-#if 0 // change to #if 1 to get an alternative implementation
+// change to #if 1 to get an alternative implementation
+#if 0
+#define USE_ALT_CRT
+#endif
 
+#ifdef USE_ALT_CRT
 #define DoubleCRT AltCRT
 #include "AltCRT.h"
+
 #else
 #ifndef _DoubleCRT_H_
 #define _DoubleCRT_H_
@@ -139,9 +144,9 @@ public:
 
   // copy constructor: default
 
-  //! @brief Initializing AltCRT from a ZZX polynomial
+  //! @brief Initializing DoubleCRT from a ZZX polynomial
   //! @param poly The ring element itself, zero if not specified
-  //! @param _context The context for this AltCRT object, use "current active context" if not specified
+  //! @param _context The context for this DoubleCRT object, use "current active context" if not specified
   //! @param indexSet Which primes to use for this object, if not specified then use all of them
   DoubleCRT(const ZZX&poly, const FHEcontext& _context, const IndexSet& indexSet);
   DoubleCRT(const ZZX&poly, const FHEcontext& _context);
@@ -357,6 +362,13 @@ public:
     ZZX poly; 
     ::sampleGaussian(poly, context.zMStar.getPhiM(), stdev);
     *this = poly; // convert to DoubleCRT
+  }
+
+  //! @brief Coefficients are uniform in [-B..B]
+  void sampleUniform(const ZZ& B) {
+    ZZX poly;
+    ::sampleUniform(poly, B, context.zMStar.getPhiM());
+    *this = poly;
   }
 
 

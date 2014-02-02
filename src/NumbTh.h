@@ -21,6 +21,7 @@
  **/
 #include <vector>
 #include <cmath>
+#include <cassert>
 #include <istream>
 #include <NTL/ZZ.h>
 #include <NTL/ZZ_p.h>
@@ -47,6 +48,15 @@ typedef unordered_map<string, const char *> argmap_t;
  * It returns false if errors were detected, and true otherwise. 
  **/
 bool parseArgs(int argc,  char *argv[], argmap_t& argmap);
+
+
+//! @brief Routines for computing mathematically correct mod and div.
+//! 
+//! mcDiv(a, b) = floor(a / b), mcMod(a, b) = a - b*mcDiv(a, b);
+//! in particular, mcMod(a, b) is 0 or has the same sign as b
+
+long mcMod(long a, long b);
+long mcDiv(long a, long b);
 
 //! Return multiplicative order of p modulo m, or 0 if GCD(p, m) != 1
 long multOrd(long p, long m);
@@ -118,6 +128,9 @@ long mobius(long n);
 
 //! Compute cyclotomic polynomial.
 ZZX Cyclotomic(long N);
+
+//! Return a degree-d irreducible polynomial mod p
+ZZX makeIrredPoly(long p, long d);
 
 //! Find a primitive root modulo N.
 long primroot(long N,long phiN);
@@ -194,6 +207,15 @@ void add(vector<ZZX>& x, const vector<ZZX>& a, const vector<ZZX>& b);
 //! Returns -1 it not and the location if true
 long is_in(long x,int* X,long sz);
 
+//! @brief Returns a CRT coefficient: x = (0 mod p, 1 mod q).
+//! If symmetric is set then x \in [-pq/2, pq/2), else x \in [0,pq)
+inline long CRTcoeff(long p, long q, bool symmetric=false)
+{
+  long pInv = InvMod(p,q); // p^-1 mod q \in [0,q)
+  if (symmetric && 2*pInv >= q) return p*(pInv-q);
+  else                          return p*pInv;
+}
+
 /**
  * @brief Incremental integer CRT for vectors.
  * 
@@ -259,6 +281,10 @@ void sampleSmall(ZZX &poly, long n=0);
 //! Sample polynomials with Gaussian coefficients.
 void sampleGaussian(ZZX &poly, long n=0, double stdev=1.0);
 
+//! Sample polynomials with coefficients sampled uniformy
+//! over [-B..B]
+void sampleUniform(ZZX& poly, const ZZ& B, long n=0);
+
 
 /**
  * @brief Facility for "restoring" the NTL PRG state.
@@ -310,6 +336,34 @@ private:
 //! @brief Advance the input stream beyond white spaces and a single instance of the char cc
 void seekPastChar(istream& str, int cc);
 
+//! @brief Reverse a vector in place
+template<class T> void reverse(Vec<T>& v, long lo, long hi)
+{
+  long n = v.length();
+  assert(lo >= 0 && lo <= hi && hi < n);
+
+  if (lo >= hi) return;
+
+  for (long i = lo, j = hi; i < j; i++, j--) swap(v[i], v[j]); 
+}
+
+//! @brief Rotate a vector in place using swaps
+// Example: rotate by 1 means [0 1 2 3] -> [3 0 1 2]
+//          rotate by -1 means [0 1 2 3] -> [1 2 3 0]
+template<class T> void rotate(Vec<T>& v, long k)
+{
+  long n = v.length();
+  if (n <= 1) return;
+
+  k %= n;
+  if (k < 0) k += n;
+
+  if (k == 0) return;
+
+  reverse(v, 0, n-1);
+  reverse(v, 0, k-1);
+  reverse(v, k, n-1);
+}
 
 // An experimental facility...it is annoying that vector::size() is an
 // unsigned quantity...this leads to all kinds of annoying warning messages...
@@ -328,6 +382,12 @@ bool sameObject(const T1* p1, const T2* p2) {
 
 //! @brief Modular composition of polynomials: res = g(h) mod f
 void ModComp(ZZX& res, const ZZX& g, const ZZX& h, const ZZX& f);
+
+//! @brief returns ceiling(a/b); assumes a >=0, b>0, a+b <= MAX_LONG
+inline long divc(long a, long b)
+{
+  return (a + b - 1)/b;
+}
 
 ///@{
 //! @name The size of the coefficient vector of a polynomial.
